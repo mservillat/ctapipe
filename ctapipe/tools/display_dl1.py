@@ -1,6 +1,7 @@
 """
 Calibrate dl0 data to dl1, and plot the photoelectron images.
 """
+import sys
 from matplotlib import colors
 from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
@@ -10,7 +11,7 @@ from ctapipe.calib import CameraCalibrator
 from ctapipe.core import Component, Tool
 from ctapipe.core import traits
 from ctapipe.image.extractor import ImageExtractor
-from ctapipe.io import EventSource
+from ctapipe.io import EventSource, DataLevel
 from ctapipe.utils import get_dataset_path
 from ctapipe.visualization import CameraDisplay
 
@@ -179,6 +180,13 @@ class DisplayDL1Calib(Tool):
 
     def setup(self):
         self.eventsource = self.add_component(EventSource.from_config(parent=self))
+        datalevels = self.event_source.datalevels
+        if DataLevel.R1 not in datalevels and DataLevel.DL0 not in datalevels:
+            self.log.critical(
+                f"{self.name} needs the EventSource to provide either R1 or DL0 data"
+                f", {self.event_source} provides only {datalevels}"
+            )
+            sys.exit(1)
 
         self.calibrator = self.add_component(
             CameraCalibrator(parent=self, subarray=self.eventsource.subarray)

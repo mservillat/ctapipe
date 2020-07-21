@@ -1,19 +1,17 @@
 from tqdm import tqdm
 import numpy as np
+import sys
 from astropy.coordinates import SkyCoord
 from ctapipe.containers import TelEventIndexContainer
 
 from ctapipe.calib import CameraCalibrator
-from ctapipe.core import Provenance
-from ctapipe.core import Tool, ToolConfigurationError
-from ctapipe.core import traits
-from ctapipe.io import EventSource
-from ctapipe.io import HDF5TableWriter
-from ctapipe.image.cleaning import TailcutsImageCleaner
-from ctapipe.coordinates import TelescopeFrame, CameraFrame
-from ctapipe.image import ImageExtractor
 from ctapipe.containers import MuonParametersContainer
+from ctapipe.coordinates import TelescopeFrame, CameraFrame
+from ctapipe.core import Provenance, Tool, ToolConfigurationError, traits
+from ctapipe.image import ImageExtractor
+from ctapipe.image.cleaning import TailcutsImageCleaner
 from ctapipe.instrument import CameraGeometry
+from ctapipe.io import EventSource, DataLevel, HDF5TableWriter
 
 from ctapipe.image.muon import (
     MuonRingFitter,
@@ -42,7 +40,7 @@ class MuonAnalysis(Tool):
     )
 
     completeness_threshold = traits.FloatTelescopeParameter(
-        default_value=30.0, help="Threshold for calculating the ``ring_completeness``",
+        default_value=30.0, help="Threshold for calculating the ``ring_completeness``"
     ).tag(config=True)
 
     ratio_width = traits.FloatTelescopeParameter(
@@ -66,11 +64,11 @@ class MuonAnalysis(Tool):
     ).tag(config=True)
 
     pedestal = traits.FloatTelescopeParameter(
-        help="Pedestal noise rms", default_value=1.1,
+        help="Pedestal noise rms", default_value=1.1
     ).tag(config=True)
 
     extractor_name = traits.create_class_enum_trait(
-        ImageExtractor, default_value="GlobalPeakWindowSum",
+        ImageExtractor, default_value="GlobalPeakWindowSum"
     ).tag(config=True)
 
     classes = [
@@ -104,6 +102,14 @@ class MuonAnalysis(Tool):
             )
 
         self.source = self.add_component(EventSource.from_config(parent=self))
+        datalevels = self.source.datalevels
+        if DataLevel.R1 not in datalevels and DataLevel.DL0 not in datalevels:
+            self.log.critical(
+                f"{self.name} needs the EventSource to provide either R1 or DL0 data"
+                f", {self.source} provides only {datalevels}"
+            )
+            sys.exit(1)
+
         self.extractor = self.add_component(
             ImageExtractor.from_name(
                 self.extractor_name, parent=self, subarray=self.source.subarray
@@ -116,15 +122,15 @@ class MuonAnalysis(Tool):
                 image_extractor=self.extractor,
             )
         )
-        self.ring_fitter = self.add_component(MuonRingFitter(parent=self,))
+        self.ring_fitter = self.add_component(MuonRingFitter(parent=self))
         self.intensity_fitter = self.add_component(
-            MuonIntensityFitter(subarray=self.source.subarray, parent=self,)
+            MuonIntensityFitter(subarray=self.source.subarray, parent=self)
         )
         self.cleaning = self.add_component(
-            TailcutsImageCleaner(parent=self, subarray=self.source.subarray,)
+            TailcutsImageCleaner(parent=self, subarray=self.source.subarray)
         )
         self.writer = self.add_component(
-            HDF5TableWriter(self.output, "", add_prefix=True, parent=self, mode="w",)
+            HDF5TableWriter(self.output, "", add_prefix=True, parent=self, mode="w")
         )
         self.pixels_in_tel_frame = {}
         self.field_of_view = {}
@@ -209,10 +215,10 @@ class MuonAnalysis(Tool):
         self.log.info(
             f"Muon fit: r={ring.radius:.2f}"
             f", width={result.width:.4f}"
-            f", efficiency={result.optical_efficiency:.2%}",
+            f", efficiency={result.optical_efficiency:.2%}"
         )
 
-        tel_event_index = TelEventIndexContainer(**event_index, tel_id=tel_id,)
+        tel_event_index = TelEventIndexContainer(**event_index, tel_id=tel_id)
 
         self.writer.write(
             "dl1/event/telescope/parameters/muons",
@@ -225,7 +231,7 @@ class MuonAnalysis(Tool):
 
         # add ring containment, not filled in fit
         containment = ring_containment(
-            ring.radius, ring.center_x, ring.center_y, fov_radius,
+            ring.radius, ring.center_x, ring.center_y, fov_radius
         )
 
         completeness = ring_completeness(
@@ -304,9 +310,7 @@ class MuonAnalysis(Tool):
         return coords.fov_lon, coords.fov_lat
 
     def finish(self):
-        Provenance().add_output_file(
-            self.output, role="muon_efficiency_parameters",
-        )
+        Provenance().add_output_file(self.output, role="muon_efficiency_parameters")
         self.writer.close()
 
 
